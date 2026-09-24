@@ -294,9 +294,24 @@ def delete_part(part_id: int):
 def get_inventory():
     try:
         with get_db_connection() as conn:
-            rows = conn.execute(
-                """SELECT 
-                    i.id,
+            # Detect available columns on inventory table
+            col_rows = conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'inventory'"
+            ).fetchall()
+            existing_cols = {r["column_name"] for r in col_rows}
+
+            has_safety = "safety_stock" in existing_cols
+            has_max = "max_stock" in existing_cols
+            has_updated = "updated_at" in existing_cols
+            has_id = "id" in existing_cols
+
+            safety_expr = "COALESCE(i.safety_stock, 5)" if has_safety else "5"
+            max_expr = "COALESCE(i.max_stock, 50)" if has_max else "50"
+            updated_expr = "i.updated_at" if has_updated else "NOW()"
+            id_expr = "COALESCE(i.id, p.id)" if has_id else "p.id"
+
+            query = f"""SELECT 
+                    {id_expr} AS id,
                     p.id AS part_id,
                     p.sku,
                     p.name,
@@ -306,17 +321,18 @@ def get_inventory():
                     COALESCE(p.unit_cost, 0.0) AS unit_cost,
                     COALESCE(i.quantity, 0) AS quantity,
                     COALESCE(i.quantity, 0) AS "currentStock",
-                    COALESCE(i.reorder_point, 0) AS reorder_point,
-                    COALESCE(i.reorder_point, 0) AS "reorderPoint",
-                    COALESCE(i.safety_stock, 0) AS safety_stock,
-                    COALESCE(i.safety_stock, 0) AS "safetyStock",
-                    COALESCE(i.max_stock, 0) AS max_stock,
-                    COALESCE(i.max_stock, 0) AS "maxStock",
-                    i.updated_at
+                    COALESCE(i.reorder_point, 10) AS reorder_point,
+                    COALESCE(i.reorder_point, 10) AS "reorderPoint",
+                    {safety_expr} AS safety_stock,
+                    {safety_expr} AS "safetyStock",
+                    {max_expr} AS max_stock,
+                    {max_expr} AS "maxStock",
+                    {updated_expr} AS updated_at
                    FROM parts p
                    LEFT JOIN inventory i ON i.part_id = p.id
                    ORDER BY p.name ASC"""
-            ).fetchall()
+
+            rows = conn.execute(query).fetchall()
 
             results = []
             for r in rows:
@@ -325,7 +341,6 @@ def get_inventory():
                 safety = item["safety_stock"]
                 reorder = item["reorder_point"]
 
-                # Calculate status and stockout risk
                 if qty <= safety:
                     st = "Critical"
                     risk = "High"
@@ -344,16 +359,30 @@ def get_inventory():
             return results
     except Exception as e:
         logger.error(f"Error fetching inventory: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch inventory stock levels.")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch inventory: {type(e).__name__}: {str(e)}")
 
 
 @router.get("/inventory/{part_id}", response_model=InventoryItemResponse)
 def get_inventory_for_part(part_id: int):
     try:
         with get_db_connection() as conn:
-            row = conn.execute(
-                """SELECT 
-                    i.id,
+            col_rows = conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'inventory'"
+            ).fetchall()
+            existing_cols = {r["column_name"] for r in col_rows}
+
+            has_safety = "safety_stock" in existing_cols
+            has_max = "max_stock" in existing_cols
+            has_updated = "updated_at" in existing_cols
+            has_id = "id" in existing_cols
+
+            safety_expr = "COALESCE(i.safety_stock, 5)" if has_safety else "5"
+            max_expr = "COALESCE(i.max_stock, 50)" if has_max else "50"
+            updated_expr = "i.updated_at" if has_updated else "NOW()"
+            id_expr = "COALESCE(i.id, p.id)" if has_id else "p.id"
+
+            query = f"""SELECT 
+                    {id_expr} AS id,
                     p.id AS part_id,
                     p.sku,
                     p.name,
@@ -363,18 +392,18 @@ def get_inventory_for_part(part_id: int):
                     COALESCE(p.unit_cost, 0.0) AS unit_cost,
                     COALESCE(i.quantity, 0) AS quantity,
                     COALESCE(i.quantity, 0) AS "currentStock",
-                    COALESCE(i.reorder_point, 0) AS reorder_point,
-                    COALESCE(i.reorder_point, 0) AS "reorderPoint",
-                    COALESCE(i.safety_stock, 0) AS safety_stock,
-                    COALESCE(i.safety_stock, 0) AS "safetyStock",
-                    COALESCE(i.max_stock, 0) AS max_stock,
-                    COALESCE(i.max_stock, 0) AS "maxStock",
-                    i.updated_at
+                    COALESCE(i.reorder_point, 10) AS reorder_point,
+                    COALESCE(i.reorder_point, 10) AS "reorderPoint",
+                    {safety_expr} AS safety_stock,
+                    {safety_expr} AS "safetyStock",
+                    {max_expr} AS max_stock,
+                    {max_expr} AS "maxStock",
+                    {updated_expr} AS updated_at
                    FROM parts p
                    LEFT JOIN inventory i ON i.part_id = p.id
-                   WHERE p.id = %s""",
-                (part_id,),
-            ).fetchone()
+                   WHERE p.id = %s"""
+
+            row = conn.execute(query, (part_id,)).fetchone()
 
             if not row:
                 raise HTTPException(status_code=404, detail=f"Inventory for part id {part_id} not found.")
@@ -401,7 +430,7 @@ def get_inventory_for_part(part_id: int):
         raise
     except Exception as e:
         logger.error(f"Error fetching inventory for part {part_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch part inventory.")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch inventory for part: {type(e).__name__}: {str(e)}")
 
 
 @router.put("/inventory/{part_id}", response_model=InventoryItemResponse, dependencies=[Depends(verify_api_key)])

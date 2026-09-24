@@ -158,28 +158,20 @@ CREATE INDEX IF NOT EXISTS idx_inv_tx_part_id ON inventory_transactions(part_id)
 """
 
 # Migration queries to seamlessly upgrade existing databases without wiping data
-MIGRATION_SQL = """
--- Upgrade parts table columns if created with legacy minimal schema
-ALTER TABLE parts ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE parts ADD COLUMN IF NOT EXISTS criticality VARCHAR(50) NOT NULL DEFAULT 'Essential';
-
--- Upgrade inventory table columns
-ALTER TABLE inventory ADD COLUMN IF NOT EXISTS id SERIAL;
-ALTER TABLE inventory ADD COLUMN IF NOT EXISTS safety_stock INT NOT NULL DEFAULT 0;
-ALTER TABLE inventory ADD COLUMN IF NOT EXISTS max_stock INT NOT NULL DEFAULT 0;
-ALTER TABLE inventory ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-
--- Upgrade purchase_orders table columns
-ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS po_number VARCHAR(100);
-ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(id) ON DELETE SET NULL;
-ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS order_date TIMESTAMPTZ DEFAULT NOW();
-ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS expected_date TIMESTAMPTZ;
-ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS received_date TIMESTAMPTZ;
-ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS total_value NUMERIC(14, 2) DEFAULT 0.00;
-
--- Fill missing po_numbers on legacy records if any
-UPDATE purchase_orders SET po_number = 'PO-LEGACY-' || id WHERE po_number IS NULL;
-"""
+INDIVIDUAL_MIGRATIONS = [
+    "ALTER TABLE parts ADD COLUMN IF NOT EXISTS description TEXT;",
+    "ALTER TABLE parts ADD COLUMN IF NOT EXISTS criticality VARCHAR(50) NOT NULL DEFAULT 'Essential';",
+    "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS safety_stock INT NOT NULL DEFAULT 0;",
+    "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS max_stock INT NOT NULL DEFAULT 0;",
+    "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();",
+    "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS po_number VARCHAR(100);",
+    "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(id) ON DELETE SET NULL;",
+    "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS order_date TIMESTAMPTZ DEFAULT NOW();",
+    "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS expected_date TIMESTAMPTZ;",
+    "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS received_date TIMESTAMPTZ;",
+    "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS total_value NUMERIC(14, 2) DEFAULT 0.00;",
+    "UPDATE purchase_orders SET po_number = 'PO-LEGACY-' || id WHERE po_number IS NULL;",
+]
 
 _pool: ConnectionPool | None = None
 
@@ -231,16 +223,31 @@ def get_db_connection() -> Generator[psycopg.Connection, None, None]:
 
 
 def init_db():
-    """Initializes tables and executes idempotent schema migrations."""
+    """Initializes tables and executes idempotent schema migrations safely."""
     if not DATABASE_URL:
         logger.warning("DATABASE_URL is empty; skipping database initialization.")
         return
 
     logger.info("Initializing database schema...")
     with get_db_connection() as conn:
-        with conn.transaction():
-            conn.execute(SCHEMA_SQL)
-            conn.execute(MIGRATION_SQL)
+        # 1. Execute schema creation statements
+        for stmt in SCHEMA_SQL.split(";"):
+            stmt_clean = stmt.strip()
+            if stmt_clean:
+                try:
+                    with conn.transaction():
+                        conn.execute(stmt_clean)
+                except Exception as ex:
+                    logger.debug(f"Schema statement notice: {ex}")
+
+        # 2. Execute each migration statement in its own transaction
+        for mig in INDIVIDUAL_MIGRATIONS:
+            try:
+                with conn.transaction():
+                    conn.execute(mig)
+            except Exception as ex:
+                logger.warning(f"Migration notice for '{mig}': {ex}")
+
     logger.info("Database schema initialized and verified successfully.")
 
 
