@@ -280,6 +280,7 @@ def delete_part(part_id: int):
 # 3. Inventory Stock Endpoints
 # =====================================================================
 @router.get("/inventory", response_model=List[InventoryItemResponse])
+@router.get("/inventory/inventory", response_model=List[InventoryItemResponse], include_in_schema=False)
 def get_inventory():
     try:
         with get_db_connection() as conn:
@@ -1535,6 +1536,25 @@ def trigger_database_seed():
     except Exception as e:
         logger.error(f"Error during seed trigger: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Database seeding failed: {str(e)}")
+
+
+# Root-level fallback aliases for flexible frontend base URLs (with or without /api/v1/db prefix)
+@app.get("/inventory", include_in_schema=False)
+@app.get("/inventory/inventory", include_in_schema=False)
+def root_inventory():
+    return get_inventory()
+
+@app.get("/parts", include_in_schema=False)
+def root_parts():
+    return get_parts()
+
+@app.get("/suppliers", include_in_schema=False)
+def root_suppliers():
+    return get_suppliers()
+
+@app.get("/purchase-orders", include_in_schema=False)
+def root_purchase_orders():
+    return get_purchase_orders()
 
 
 # Include the API router
