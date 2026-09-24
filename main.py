@@ -93,6 +93,16 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc: Exception):
+    logger.error(f"Global unhandled exception on {request.method} {request.url}: {exc}", exc_info=True)
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"status": "error", "detail": "Internal server error occurred.", "error_type": type(exc).__name__},
+    )
+
+
 def verify_api_key(x_api_key: Optional[str] = Header(None)):
     """Verifies X-API-Key header if API_KEY environment variable is configured."""
     if API_KEY and API_KEY.strip():
