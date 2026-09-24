@@ -230,6 +230,19 @@ def init_db():
 
     logger.info("Initializing database schema...")
     with get_db_connection() as conn:
+        with conn.transaction():
+            # Check if an incompatible legacy inventory table exists without part_id
+            check_inv = conn.execute(
+                """SELECT column_name FROM information_schema.columns 
+                   WHERE table_name = 'inventory' AND column_name = 'part_id'"""
+            ).fetchone()
+            inv_exists = conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_name = 'inventory'"
+            ).fetchone()
+            if inv_exists and not check_inv:
+                logger.warning("Found incompatible legacy inventory table without part_id. Recreating...")
+                conn.execute("DROP TABLE IF EXISTS inventory CASCADE")
+
         # 1. Execute schema creation statements
         for stmt in SCHEMA_SQL.split(";"):
             stmt_clean = stmt.strip()

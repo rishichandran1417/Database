@@ -117,6 +117,18 @@ def verify_api_key(x_api_key: Optional[str] = Header(None)):
 router = APIRouter(prefix="/api/v1/db")
 
 
+@router.get("/debug/schema")
+def debug_schema():
+    with get_db_connection() as conn:
+        cols = conn.execute(
+            """SELECT table_name, column_name, data_type 
+               FROM information_schema.columns 
+               WHERE table_schema = 'public'
+               ORDER BY table_name, ordinal_position"""
+        ).fetchall()
+        return [dict(c) for c in cols]
+
+
 # =====================================================================
 # 1. Health Endpoints
 # =====================================================================
