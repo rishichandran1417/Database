@@ -61,7 +61,7 @@ API_KEY = os.getenv("API_KEY")
 ALLOWED_ORIGINS_RAW = os.getenv("ALLOWED_ORIGINS", "*")
 ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
 
-DEPOT_NAME = "KSRTC Central Depot, Thiruvananthapuram"
+DEPOT_NAME = "KSRTC Central Stores"
 
 
 @asynccontextmanager

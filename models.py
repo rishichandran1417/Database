@@ -62,7 +62,7 @@ class InventoryItemResponse(BaseModel):
     safetyStock: int  # alias for frontend
     max_stock: int
     maxStock: int  # alias for frontend
-    depot: str = "KSRTC Central Depot, Thiruvananthapuram"
+    depot: str = "KSRTC Central Stores"
     status: str  # Healthy, Warning, Critical
     stockoutRisk: str  # Low, Medium, High
     daysOfSupply: Optional[int] = 0
@@ -195,7 +195,7 @@ class PurchaseOrderResponse(BaseModel):
     supplier_id: Optional[int] = None
     supplier_name: Optional[str] = None
     supplier: Optional[str] = None  # frontend alias
-    depot: str = "KSRTC Central Depot, Thiruvananthapuram"
+    depot: str = "KSRTC Central Stores"
     status: str
     order_date: Optional[datetime] = None
     poDate: Optional[str] = None  # frontend alias
@@ -245,7 +245,7 @@ class DemandHistoryCreate(BaseModel):
     part_id: int
     date: date
     quantity_consumed: int = Field(..., ge=0)
-    depot: str = "KSRTC Central Depot, Thiruvananthapuram"
+    depot: str = "KSRTC Central Stores"
 
 
 class DemandHistoryBatchCreate(BaseModel):
@@ -387,5 +387,5 @@ class PuLPOptimizationInputResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str = "ok"
     database: str = "connected"
-    depot: str = "KSRTC Central Depot, Thiruvananthapuram"
+    depot: str = "KSRTC Central Stores"
     timestamp: datetime

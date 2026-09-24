@@ -9,7 +9,7 @@ from database import get_db_connection, init_db
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ksrtc_seed")
 
-DEPOT_NAME = "KSRTC Central Depot, Thiruvananthapuram"
+DEPOT_NAME = "KSRTC Central Stores"
 
 
 # 1. Realistic KSRTC Spare Parts Dataset

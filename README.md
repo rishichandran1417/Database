@@ -2,7 +2,7 @@
 
 Backend API and PostgreSQL central database service for the Kerala State Road Transport Corporation (**KSRTC**) spare parts procurement, inventory management, demand forecasting, and supply chain analytics platform.
 
-> **Single Depot Architecture**: This application represents **KSRTC Central Depot, Thiruvananthapuram**. Multi-depot logic is deliberately excluded per specification.
+> **Single Depot Architecture**: This application represents **KSRTC Central Stores**. Multi-depot logic is deliberately excluded per specification.
 
 ---
 

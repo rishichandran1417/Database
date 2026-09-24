@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS demand_history (
     part_id INT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
     date DATE NOT NULL,
     quantity_consumed INT NOT NULL CHECK (quantity_consumed >= 0),
-    depot VARCHAR(255) NOT NULL DEFAULT 'KSRTC Central Depot, Thiruvananthapuram',
+    depot VARCHAR(255) NOT NULL DEFAULT 'KSRTC Central Stores',
     CONSTRAINT uq_part_date_depot UNIQUE (part_id, date, depot)
 );
 
