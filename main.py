@@ -131,16 +131,26 @@ def add_part(part: PartIn):
 # Inventory stock levels
 @router.get("/inventory")
 def list_inventory():
-    with db() as conn:
-        return conn.execute(
-            """SELECT p.id AS part_id, p.sku, p.name,
-                      COALESCE(i.quantity, 0) AS quantity,
-                      COALESCE(i.reorder_point, 0) AS reorder_point,
-                      i.updated_at
-               FROM parts p
-               LEFT JOIN inventory i ON i.part_id = p.id
-               ORDER BY p.name"""
-        ).fetchall()
+    try:
+        with db() as conn:
+            return conn.execute(
+                """SELECT p.id AS part_id,
+                          p.sku,
+                          p.name,
+                          COALESCE(i.quantity, 0) AS quantity,
+                          COALESCE(i.reorder_point, 0) AS reorder_point,
+                          i.updated_at
+                   FROM parts p
+                   LEFT JOIN inventory i ON i.part_id = p.id
+                   ORDER BY p.name"""
+            ).fetchall()
+
+    except Exception as e:
+        print(f"INVENTORY ERROR: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(e).__name__}: {str(e)}"
+        )
 
 
 @router.put("/inventory/{part_id}", dependencies=[Depends(require_key)])
