@@ -70,8 +70,28 @@ def run_unit_tests():
         assert ep in paths, f"Missing endpoint in OpenAPI schema: {ep}"
         print(f"PASS: Verified endpoint registered: {ep}")
 
-    # 3. Test Pydantic Model Validation
+    # 3. Test Pydantic Model Validation (Neon Schema & Aliases)
     part = PartCreate(
+        part_number="TEST-PN-001",
+        part_name="Test Air Filter",
+        category="Engine",
+        sub_category="Filtration",
+        description="Heavy duty air filter",
+        standard_cost=1200.0,
+        criticality="Critical",
+        minimum_order_quantity=5,
+        reorder_point=15,
+        safety_stock=8,
+    )
+    assert part.part_number == "TEST-PN-001"
+    assert part.sku == "TEST-PN-001"
+    assert part.part_name == "Test Air Filter"
+    assert part.name == "Test Air Filter"
+    assert part.standard_cost == 1200.0
+    assert part.unit_cost == 1200.0
+    print("PASS: PartCreate validation with Neon schema fields")
+
+    part_legacy = PartCreate(
         sku="TEST-SKU-001",
         name="Test Brake Lining",
         category="Braking System",
@@ -79,19 +99,28 @@ def run_unit_tests():
         unit_cost=3500.0,
         criticality="Critical",
     )
-    assert part.sku == "TEST-SKU-001"
-    print("PASS: PartCreate validation")
+    assert part_legacy.part_number == "TEST-SKU-001"
+    assert part_legacy.sku == "TEST-SKU-001"
+    assert part_legacy.part_name == "Test Brake Lining"
+    assert part_legacy.name == "Test Brake Lining"
+    assert part_legacy.standard_cost == 3500.0
+    print("PASS: PartCreate validation with legacy frontend aliases")
 
     po = PurchaseOrderCreate(
         po_number="PO-TEST-001",
-        supplier="TVS & Sons",
+        vendor_id=1,
         items=[
-            PurchaseOrderItemCreate(part_id=1, quantity=10, unit_cost=500.0),
+            PurchaseOrderItemCreate(part_id=1, ordered_quantity=10, unit_price=500.0),
             PurchaseOrderItemCreate(part_id=2, quantity=5, unit_cost=1200.0),
         ],
     )
     assert len(po.items) == 2
-    print("PASS: PurchaseOrderCreate with multi-item validation")
+    assert po.items[0].ordered_quantity == 10
+    assert po.items[0].quantity == 10
+    assert po.items[0].unit_price == 500.0
+    assert po.items[1].ordered_quantity == 5
+    assert po.items[1].unit_price == 1200.0
+    print("PASS: PurchaseOrderCreate with multi-item validation (Neon + legacy fields)")
 
     rec = ProcurementRecommendationCreate(
         part_id=1,

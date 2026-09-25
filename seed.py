@@ -415,56 +415,62 @@ def seed_database():
             part_id_map = {}
             for p in PARTS_DATA:
                 row = conn.execute(
-                    """INSERT INTO parts (sku, name, category, description, unit_cost, criticality)
-                       VALUES (%s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (sku) DO UPDATE
-                       SET name = EXCLUDED.name,
+                    """INSERT INTO parts 
+                       (part_number, part_name, category, description, standard_cost, criticality, reorder_point, safety_stock, minimum_order_quantity, active_status)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'Active')
+                       ON CONFLICT (part_number) DO UPDATE
+                       SET part_name = EXCLUDED.part_name,
                            category = EXCLUDED.category,
                            description = EXCLUDED.description,
-                           unit_cost = EXCLUDED.unit_cost,
-                           criticality = EXCLUDED.criticality
-                       RETURNING id, sku""",
-                    (p["sku"], p["name"], p["category"], p["description"], p["unit_cost"], p["criticality"]),
+                           standard_cost = EXCLUDED.standard_cost,
+                           criticality = EXCLUDED.criticality,
+                           reorder_point = EXCLUDED.reorder_point,
+                           safety_stock = EXCLUDED.safety_stock
+                       RETURNING part_id, part_number""",
+                    (p["sku"], p["name"], p["category"], p["description"], p["unit_cost"], p["criticality"], p["reorder_point"], p["safety_stock"], 1),
                 ).fetchone()
 
-                part_id = row["id"]
+                part_id = row["part_id"]
                 part_id_map[p["sku"]] = part_id
 
                 # Upsert inventory
                 conn.execute(
-                    """INSERT INTO inventory (part_id, quantity, reorder_point, safety_stock, max_stock, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, NOW())
+                    """INSERT INTO inventory 
+                       (part_id, current_stock, available_stock, reorder_point, safety_stock, maximum_stock, average_unit_cost, inventory_value, last_updated)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                        ON CONFLICT (part_id) DO UPDATE
-                       SET reorder_point = EXCLUDED.reorder_point,
+                       SET current_stock = EXCLUDED.current_stock,
+                           available_stock = EXCLUDED.available_stock,
+                           reorder_point = EXCLUDED.reorder_point,
                            safety_stock = EXCLUDED.safety_stock,
-                           max_stock = EXCLUDED.max_stock,
-                           updated_at = NOW()""",
-                    (part_id, p["stock"], p["reorder_point"], p["safety_stock"], p["max_stock"]),
+                           maximum_stock = EXCLUDED.maximum_stock,
+                           average_unit_cost = EXCLUDED.average_unit_cost,
+                           inventory_value = EXCLUDED.inventory_value,
+                           last_updated = NOW()""",
+                    (part_id, p["stock"], p["stock"], p["reorder_point"], p["safety_stock"], p["max_stock"], p["unit_cost"], round(p["stock"] * p["unit_cost"], 2)),
                 )
 
             # -------------------------------------------------------------
-            # 2. Seed Suppliers
+            # 2. Seed Vendors
             # -------------------------------------------------------------
-            logger.info("Seeding suppliers...")
+            logger.info("Seeding vendors...")
             supplier_id_map = {}
             for s in SUPPLIERS_DATA:
                 row = conn.execute(
-                    """INSERT INTO suppliers 
-                       (supplier_code, supplier_name, contact_person, email, phone, category, lead_time_days, status)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (supplier_code) DO UPDATE
-                       SET supplier_name = EXCLUDED.supplier_name,
-                           contact_person = EXCLUDED.contact_person,
-                           email = EXCLUDED.email,
-                           phone = EXCLUDED.phone,
-                           category = EXCLUDED.category,
-                           lead_time_days = EXCLUDED.lead_time_days,
-                           status = EXCLUDED.status
-                       RETURNING id, supplier_code""",
+                    """INSERT INTO vendors 
+                       (vendor_code, vendor_name, contact_email, contact_phone, vendor_category, default_lead_time_days, active_status)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (vendor_code) DO UPDATE
+                       SET vendor_name = EXCLUDED.vendor_name,
+                           contact_email = EXCLUDED.contact_email,
+                           contact_phone = EXCLUDED.contact_phone,
+                           vendor_category = EXCLUDED.vendor_category,
+                           default_lead_time_days = EXCLUDED.default_lead_time_days,
+                           active_status = EXCLUDED.active_status
+                       RETURNING vendor_id, vendor_code""",
                     (
                         s["supplier_code"],
                         s["supplier_name"],
-                        s["contact_person"],
                         s["email"],
                         s["phone"],
                         s["category"],
@@ -472,58 +478,7 @@ def seed_database():
                         s["status"],
                     ),
                 ).fetchone()
-                supplier_id_map[s["supplier_code"]] = row["id"]
-
-            # -------------------------------------------------------------
-            # 3. Seed Supplier Parts Mappings (Prices & MOQs)
-            # -------------------------------------------------------------
-            logger.info("Seeding supplier-part pricing and lead time relationships...")
-            mapping_rules = [
-                # (sku, supplier_code, discount_factor, lead_days, moq)
-                ("ENG-AL-001", "SUP-TVS-01", 0.95, 4, 10),
-                ("ENG-AL-002", "SUP-TVS-01", 0.96, 4, 10),
-                ("ENG-AL-003", "SUP-TVS-01", 0.98, 7, 1),
-                ("ENG-AL-004", "SUP-TVS-01", 0.94, 5, 5),
-                ("ENG-AL-005", "SUP-TVS-01", 0.95, 4, 10),
-                ("BRK-AL-001", "SUP-BRL-02", 0.92, 6, 12),
-                ("BRK-AL-002", "SUP-BRL-02", 0.95, 7, 4),
-                ("BRK-AL-003", "SUP-BRL-02", 0.90, 5, 20),
-                ("BRK-AL-004", "SUP-BRL-02", 0.93, 7, 5),
-                ("TRN-AL-001", "SUP-TVS-01", 0.94, 6, 2),
-                ("TRN-AL-002", "SUP-TVS-01", 0.95, 6, 2),
-                ("TRN-AL-003", "SUP-CWS-08", 0.85, 2, 5),
-                ("SUS-AL-001", "SUP-JAI-04", 0.93, 10, 4),
-                ("SUS-AL-002", "SUP-JAI-04", 0.94, 8, 6),
-                ("STG-AL-001", "SUP-TVS-01", 0.95, 5, 4),
-                ("STG-AL-002", "SUP-TVS-01", 0.93, 5, 6),
-                ("ELE-AL-001", "SUP-LUC-03", 0.92, 5, 2),
-                ("ELE-AL-002", "SUP-LUC-03", 0.94, 5, 2),
-                ("ELE-AL-003", "SUP-EXD-07", 0.91, 4, 4),
-                ("TYR-AL-001", "SUP-MRF-05", 0.96, 3, 6),
-                ("TYR-AL-002", "SUP-CWS-08", 0.70, 2, 10),
-                ("TYR-AL-003", "SUP-MRF-05", 0.92, 3, 15),
-                ("LUB-AL-001", "SUP-IOC-06", 0.90, 2, 10),
-                ("LUB-AL-002", "SUP-IOC-06", 0.91, 3, 5),
-                ("LUB-AL-003", "SUP-IOC-06", 0.88, 2, 8),
-            ]
-
-            for sku, sup_code, disc, l_days, moq in mapping_rules:
-                if sku in part_id_map and sup_code in supplier_id_map:
-                    pid = part_id_map[sku]
-                    sid = supplier_id_map[sup_code]
-                    base_cost = next(p["unit_cost"] for p in PARTS_DATA if p["sku"] == sku)
-                    sup_price = round(base_cost * disc, 2)
-
-                    conn.execute(
-                        """INSERT INTO supplier_parts 
-                           (supplier_id, part_id, supplier_unit_cost, lead_time_days, minimum_order_quantity)
-                           VALUES (%s, %s, %s, %s, %s)
-                           ON CONFLICT (supplier_id, part_id) DO UPDATE
-                           SET supplier_unit_cost = EXCLUDED.supplier_unit_cost,
-                               lead_time_days = EXCLUDED.lead_time_days,
-                               minimum_order_quantity = EXCLUDED.minimum_order_quantity""",
-                        (sid, pid, sup_price, l_days, moq),
-                    )
+                supplier_id_map[s["supplier_code"]] = row["vendor_id"]
 
             # -------------------------------------------------------------
             # 4. Seed Demand History (90 Days for ML & Time Series Forecasting)
@@ -653,27 +608,27 @@ def seed_database():
 
                 po_row = conn.execute(
                     """INSERT INTO purchase_orders 
-                       (po_number, supplier_id, status, order_date, expected_date, received_date, total_value)
+                       (po_number, vendor_id, status, po_date, expected_delivery_date, actual_delivery_date, total_order_value)
                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (po_number) DO UPDATE
                        SET status = EXCLUDED.status,
-                           total_value = EXCLUDED.total_value
-                       RETURNING id""",
+                           total_order_value = EXCLUDED.total_order_value
+                       RETURNING po_id""",
                     (po_spec["po_number"], sid, po_spec["status"], order_dt, exp_dt, rec_dt, tot),
                 ).fetchone()
 
-                poid = po_row["id"]
+                poid = po_row["po_id"]
                 # Clean existing items to allow idempotent re-seed
-                conn.execute("DELETE FROM purchase_order_items WHERE purchase_order_id = %s", (poid,))
+                conn.execute("DELETE FROM purchase_order_items WHERE po_id = %s", (poid,))
 
                 for item_sku, qty, cost in po_spec["items"]:
                     pid = part_id_map[item_sku]
                     rec_qty = qty if po_spec["status"] == "Received" else 0
                     conn.execute(
                         """INSERT INTO purchase_order_items 
-                           (purchase_order_id, part_id, quantity, unit_cost, received_quantity)
-                           VALUES (%s, %s, %s, %s, %s)""",
-                        (poid, pid, qty, cost, rec_qty),
+                           (po_id, part_id, ordered_quantity, unit_price, line_total, received_quantity, pending_quantity, item_status)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (poid, pid, qty, cost, qty * cost, rec_qty, max(0, qty - rec_qty), po_spec["status"]),
                     )
 
             # -------------------------------------------------------------
