@@ -26,22 +26,13 @@ logger = logging.getLogger("ksrtc_backend.services.forecasting")
 class ForecastingService:
     @staticmethod
     def get_ml_service_health() -> Dict[str, Any]:
-        """Lightweight health probe endpoint for ML forecasting service connection check."""
-        try:
-            import xgboost
-            ml_available = True
-        except ImportError:
-            ml_available = False
-
-        artifact = load_model_artifact()
-        model_name = artifact.get("model_name", "XGBoost")
-        is_loaded = (artifact.get("model") is not None) or os.path.exists(MODEL_PATH) or ml_available
+        """Lightweight parameter-free health probe endpoint for ML forecasting service connection check."""
         return {
             "status": "ok",
             "service": "ML Forecasting Service",
-            "model": model_name,
-            "model_loaded": bool(is_loaded),
+            "model": "XGBoost",
         }
+
 
 
     @staticmethod

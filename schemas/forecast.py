@@ -68,3 +68,9 @@ class ForecastEndpointResponse(BaseModel):
     mape: float = 0.0
     mae: Optional[float] = None
     rmse: Optional[float] = None
+
+
+class ForecastPredictRequest(BaseModel):
+    part_id: int
+    forecast_horizon: Optional[int] = Field(30, ge=1, le=365)
+

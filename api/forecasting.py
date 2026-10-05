@@ -14,8 +14,10 @@ from schemas.forecast import (
     ForecastBatchCreate,
     ForecastCreate,
     ForecastEndpointResponse,
+    ForecastPredictRequest,
     ForecastResponse,
 )
+
 
 router = APIRouter(tags=["Demand Forecasting"])
 
@@ -40,11 +42,17 @@ def record_demand_batch(payload: DemandHistoryBatchCreate):
     return ForecastingService.record_demand_batch(payload)
 
 
-@router.get("/forecast", tags=["Demand Forecasting"])
-@router.get("/forecasts/probe", tags=["Demand Forecasting"], include_in_schema=False)
+@router.get("/forecast", response_model=None, tags=["Demand Forecasting"])
+@router.get("/forecasts/probe", response_model=None, tags=["Demand Forecasting"], include_in_schema=False)
 def probe_ml_forecasting_service():
-    """Lightweight ML Forecasting Service connection and health probe."""
+    """Lightweight parameter-free ML Forecasting Service connection and health probe."""
     return ForecastingService.get_ml_service_health()
+
+
+@router.post("/forecast/predict", response_model=ForecastEndpointResponse, tags=["Demand Forecasting"])
+def predict_forecast_by_body(payload: ForecastPredictRequest):
+    """Generates demand forecast using JSON request payload."""
+    return ForecastingService.generate_part_forecast(payload.part_id, payload.forecast_horizon or 30)
 
 
 @router.get("/forecasts", response_model=List[ForecastResponse])
@@ -60,20 +68,9 @@ def get_forecasts(
 @router.get("/forecast/{part_id}", response_model=ForecastEndpointResponse)
 @router.post("/forecast/{part_id}", response_model=ForecastEndpointResponse)
 def get_forecast_for_part(part_id: int, forecast_horizon: int = Query(30, ge=1, le=365)):
-
-    """
-    Generates 30-day XGBoost demand forecast for specified part_id.
-    Returns structured JSON:
-    {
-      "part_id": "...",
-      "model": "XGBoost",
-      "forecast_horizon": 30,
-      "forecast": [...],
-      "total_forecast": ...,
-      "mape": ...
-    }
-    """
+    """Generates 30-day XGBoost demand forecast for specified part_id."""
     return ForecastingService.generate_part_forecast(part_id, forecast_horizon)
+
 
 
 @router.post("/forecasts", status_code=201, dependencies=[Depends(verify_api_key)])

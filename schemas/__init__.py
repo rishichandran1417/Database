@@ -35,8 +35,10 @@ from schemas.forecast import (
     ForecastBatchCreate,
     ForecastCreate,
     ForecastEndpointResponse,
+    ForecastPredictRequest,
     ForecastResponse,
 )
+
 from schemas.procurement import (
     OptimizedOrderItem,
     ProcurementOptimizationRequest,

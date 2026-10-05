@@ -234,15 +234,23 @@ def root_procurement_recommendations():
     return ProcurementService.get_recommendations()
 
 
-@app.get("/forecast", include_in_schema=False)
+@app.get("/forecast", response_model=None, include_in_schema=False)
 def root_forecast_probe():
     return ForecastingService.get_ml_service_health()
+
+
+@app.post("/forecast/predict", include_in_schema=False)
+def root_forecast_predict(payload: dict):
+    part_id = int(payload.get("part_id", 1))
+    horizon = int(payload.get("forecast_horizon", 30))
+    return ForecastingService.generate_part_forecast(part_id, horizon)
 
 
 @app.get("/forecast/{part_id}", include_in_schema=False)
 @app.post("/forecast/{part_id}", include_in_schema=False)
 def root_forecast_part(part_id: int):
     return ForecastingService.generate_part_forecast(part_id)
+
 
 
 
