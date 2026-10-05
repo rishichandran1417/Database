@@ -176,14 +176,18 @@ _pool: ConnectionPool | None = None
 
 def get_connection_pool() -> ConnectionPool:
     global _pool
+    db_url = os.getenv("DATABASE_URL", "").strip()
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+
     if _pool is None:
-        if not DATABASE_URL:
+        if not db_url:
             raise RuntimeError(
                 "DATABASE_URL is not set in environment. "
                 "Please configure DATABASE_URL in your .env or Render dashboard."
             )
         _pool = ConnectionPool(
-            conninfo=DATABASE_URL,
+            conninfo=db_url,
             min_size=1,
             max_size=10,
             kwargs={"row_factory": dict_row, "autocommit": False},
@@ -201,9 +205,13 @@ def close_connection_pool():
 @contextmanager
 def get_db_connection() -> Generator[psycopg.Connection, None, None]:
     """Yields a database connection with dict_row factory."""
-    if not DATABASE_URL:
+    db_url = os.getenv("DATABASE_URL", "").strip()
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+    if not db_url:
         raise RuntimeError("DATABASE_URL environment variable is missing.")
-    
+
     pool = None
     try:
         pool = get_connection_pool()
@@ -211,7 +219,7 @@ def get_db_connection() -> Generator[psycopg.Connection, None, None]:
             yield conn
     except Exception as e:
         if pool is None:
-            with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+            with psycopg.connect(db_url, row_factory=dict_row) as conn:
                 yield conn
         else:
             raise e
@@ -219,7 +227,8 @@ def get_db_connection() -> Generator[psycopg.Connection, None, None]:
 
 def init_db():
     """Ensures necessary tables and indexes exist without modifying existing Neon columns."""
-    if not DATABASE_URL:
+    db_url = os.getenv("DATABASE_URL", "").strip()
+    if not db_url:
         logger.warning("DATABASE_URL is empty; skipping database initialization.")
         return
 

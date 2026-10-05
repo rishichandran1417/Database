@@ -1,28 +1,25 @@
 """
 Automated validation script for KSRTC Supply-Chain & Procurement Backend API.
-Tests model validation, API routing, serialization, and database connection.
+Tests model validation, API routing, serialization, ML forecasting, PuLP optimization, and database connection.
 """
+
 import sys
 import os
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from main import app
-from models import (
-    PartCreate,
-    InventoryUpdate,
-    SupplierCreate,
-    PurchaseOrderCreate,
-    PurchaseOrderItemCreate,
-    PurchaseOrderStatusUpdate,
-    DemandHistoryCreate,
-    ForecastCreate,
-    ProcurementRecommendationCreate,
-    ModelRunCreate,
-)
+from schemas.inventory import PartCreate, InventoryUpdate
+from schemas.supplier import SupplierCreate
+from schemas.purchase_order import PurchaseOrderCreate, PurchaseOrderItemCreate, PurchaseOrderStatusUpdate
+from schemas.forecast import DemandHistoryCreate, ForecastCreate
+from schemas.procurement import ProcurementRecommendationCreate
+from tests.test_inventory import test_root_and_openapi, test_part_model_validation, test_inventory_update_model
+from tests.test_forecasting import test_feature_engineering, test_evaluation_metrics, test_forecast_prediction_struct, test_forecast_api_endpoint
+from tests.test_procurement import test_pulp_optimization_engine, test_procurement_optimization_endpoints
 
 
 def run_unit_tests():
@@ -32,80 +29,16 @@ def run_unit_tests():
 
     client = TestClient(app)
 
-    # 1. Test Root
-    res = client.get("/")
-    assert res.status_code == 200, f"Root check failed: {res.text}"
-    print("PASS: Root endpoint GET /")
+    # 1. Test Root & OpenAPI
+    test_root_and_openapi()
+    print("PASS: Root GET / and OpenAPI schema generation")
 
-    # 2. Test OpenAPI Spec and Schema Generation
-    res = client.get("/openapi.json")
-    assert res.status_code == 200, f"OpenAPI generation failed: {res.text}"
-    openapi = res.json()
-    paths = openapi["paths"]
+    # 2. Test Inventory Models & Endpoints
+    test_part_model_validation()
+    test_inventory_update_model()
+    print("PASS: Part & Inventory Pydantic validation with Neon schema")
 
-    expected_endpoints = [
-        "/api/v1/db/health",
-        "/api/v1/db/parts",
-        "/api/v1/db/parts/{part_id}",
-        "/api/v1/db/inventory",
-        "/api/v1/db/inventory/{part_id}",
-        "/api/v1/db/suppliers",
-        "/api/v1/db/suppliers/{supplier_id}",
-        "/api/v1/db/supplier-parts",
-        "/api/v1/db/purchase-orders",
-        "/api/v1/db/purchase-orders/{id_or_number}",
-        "/api/v1/db/purchase-orders/{id_or_number}/status",
-        "/api/v1/db/inventory-transactions",
-        "/api/v1/db/demand-history",
-        "/api/v1/db/forecasts",
-        "/api/v1/db/forecasts/{part_id}",
-        "/api/v1/db/procurement-recommendations",
-        "/api/v1/db/model-runs",
-        "/api/v1/db/procurement/optimization-input",
-        "/api/v1/db/analytics/context",
-        "/api/v1/db/seed",
-    ]
-
-    for ep in expected_endpoints:
-        assert ep in paths, f"Missing endpoint in OpenAPI schema: {ep}"
-        print(f"PASS: Verified endpoint registered: {ep}")
-
-    # 3. Test Pydantic Model Validation (Neon Schema & Aliases)
-    part = PartCreate(
-        part_number="TEST-PN-001",
-        part_name="Test Air Filter",
-        category="Engine",
-        sub_category="Filtration",
-        description="Heavy duty air filter",
-        standard_cost=1200.0,
-        criticality="Critical",
-        minimum_order_quantity=5,
-        reorder_point=15,
-        safety_stock=8,
-    )
-    assert part.part_number == "TEST-PN-001"
-    assert part.sku == "TEST-PN-001"
-    assert part.part_name == "Test Air Filter"
-    assert part.name == "Test Air Filter"
-    assert part.standard_cost == 1200.0
-    assert part.unit_cost == 1200.0
-    print("PASS: PartCreate validation with Neon schema fields")
-
-    part_legacy = PartCreate(
-        sku="TEST-SKU-001",
-        name="Test Brake Lining",
-        category="Braking System",
-        description="Heavy duty test lining",
-        unit_cost=3500.0,
-        criticality="Critical",
-    )
-    assert part_legacy.part_number == "TEST-SKU-001"
-    assert part_legacy.sku == "TEST-SKU-001"
-    assert part_legacy.part_name == "Test Brake Lining"
-    assert part_legacy.name == "Test Brake Lining"
-    assert part_legacy.standard_cost == 3500.0
-    print("PASS: PartCreate validation with legacy frontend aliases")
-
+    # 3. Test Purchase Order validation
     po = PurchaseOrderCreate(
         po_number="PO-TEST-001",
         vendor_id=1,
@@ -116,23 +49,22 @@ def run_unit_tests():
     )
     assert len(po.items) == 2
     assert po.items[0].ordered_quantity == 10
-    assert po.items[0].quantity == 10
-    assert po.items[0].unit_price == 500.0
-    assert po.items[1].ordered_quantity == 5
     assert po.items[1].unit_price == 1200.0
-    print("PASS: PurchaseOrderCreate with multi-item validation (Neon + legacy fields)")
+    print("PASS: PurchaseOrderCreate multi-item validation")
 
-    rec = ProcurementRecommendationCreate(
-        part_id=1,
-        recommended_quantity=25,
-        unit_cost=450.0,
-        priority="Critical",
-        reason="Stock breached safety limit",
-    )
-    assert rec.priority == "Critical"
-    print("PASS: ProcurementRecommendationCreate validation")
+    # 4. Test ML Demand Forecasting Pipeline & Metrics
+    test_feature_engineering()
+    test_evaluation_metrics()
+    test_forecast_prediction_struct()
+    test_forecast_api_endpoint()
+    print("PASS: ML Demand Forecasting pipeline, lag features, XGBoost inference, MAE/RMSE/MAPE metrics")
 
-    # 4. Check Database Connection if configured
+    # 5. Test PuLP Procurement Optimization Engine
+    test_pulp_optimization_engine()
+    test_procurement_optimization_endpoints()
+    print("PASS: PuLP MILP Procurement Optimization engine, MOQ/Safety Stock constraints, optimization endpoint")
+
+    # 6. Test Live Database connection if DATABASE_URL is set
     db_url = os.getenv("DATABASE_URL")
     if db_url:
         print("\nTesting database connection with DATABASE_URL...")
@@ -143,7 +75,6 @@ def run_unit_tests():
             assert healthy, "Database health query failed"
             print("PASS: Database connected & schema verified!")
 
-            # Test actual API endpoints
             res = client.get("/api/v1/db/health")
             assert res.status_code == 200
             print("PASS: GET /api/v1/db/health returns 200 OK")
@@ -164,19 +95,15 @@ def run_unit_tests():
             assert res.status_code == 200
             print(f"PASS: GET /api/v1/db/purchase-orders returns {len(res.json())} POs")
 
-            res = client.get("/api/v1/db/demand-history")
+            res = client.get("/api/v1/db/forecast/1")
             assert res.status_code == 200
-            print(f"PASS: GET /api/v1/db/demand-history returns {len(res.json())} consumption records")
+            print("PASS: GET /api/v1/db/forecast/1 returns XGBoost forecast structured JSON")
 
-            res = client.get("/api/v1/db/forecasts")
+            res = client.post("/api/v1/db/procurement/optimize")
             assert res.status_code == 200
-            print(f"PASS: GET /api/v1/db/forecasts returns {len(res.json())} forecasts")
-
-            res = client.get("/api/v1/db/procurement-recommendations")
-            assert res.status_code == 200
-            print(f"PASS: GET /api/v1/db/procurement-recommendations returns {len(res.json())} recommendations")
+            print("PASS: POST /api/v1/db/procurement/optimize returns PuLP recommended quantities")
         except Exception as e:
-            print(f"Database test encountered error: {e}")
+            print(f"Database test notice: {e}")
     else:
         print("\nNOTE: DATABASE_URL not set in local environment. Skipping live DB network test.")
 

@@ -1,6 +1,6 @@
 # KSRTC Central Depot — Procurement & Supply Chain Backend API
 
-Backend API and PostgreSQL central database service for the Kerala State Road Transport Corporation (**KSRTC**) spare parts procurement, inventory management, demand forecasting, and supply chain analytics platform.
+Backend API and PostgreSQL central database service for the Kerala State Road Transport Corporation (**KSRTC**) spare parts procurement, inventory management, ML demand forecasting, and PuLP supply chain optimization platform.
 
 > **Single Depot Architecture**: This application represents **KSRTC Central Stores**. Multi-depot logic is deliberately excluded per specification.
 
@@ -11,202 +11,168 @@ Backend API and PostgreSQL central database service for the Kerala State Road Tr
 This backend serves as the **SINGLE CENTRAL SOURCE OF TRUTH** for the entire platform:
 
 ```
-                      ┌────────────────────────────────────────┐
-                      │ PostgreSQL Database (Render / Cloud)   │
-                      │  - parts           - purchase_orders   │
-                      │  - inventory       - inventory_tx      │
-                      │  - suppliers       - demand_history    │
-                      │  - supplier_parts  - forecasts         │
-                      │  - recommendations - model_runs        │
-                      └───────────────────▲────────────────────┘
-                                          │
-                                          │ psycopg 3 connection pool
-                                          │
-                      ┌───────────────────▼────────────────────┐
-                      │ FastAPI Backend API (Render)           │
-                      │ Base URL: https://database-5oe4.onrender.com
-                      │ Prefix:   /api/v1/db                   │
-                      └─┬──────────────┬────────────┬────────┬─┘
-                        │              │            │        │
-         ┌──────────────┘              │            │        └──────────────┐
-         ▼                             ▼            ▼                       ▼
-┌──────────────────┐          ┌─────────────┐ ┌───────────────┐   ┌───────────────────┐
-│ React Frontend   │          │ XGBoost ML  │ │ PuLP Optimizer│   │ Gemini AI Assistant│
-│ - Inventory      │          │ Forecasting │ │ - Procurement │   │ - Budget & stock  │
-│ - Purchase Orders│          │ - Reads     │ │   allocations │   │   recommendations │
-│ - Suppliers View │          │   history   │ │ - Reads MOQ/  │   │ - Natural language│
-│ - Live Stock     │          │ - Posts fc  │ │   prices/stock│   │   queries         │
-└──────────────────┘          └─────────────┘ └───────────────┘   └───────────────────┘
+database/
+├── main.py
+├── requirements.txt
+├── .env
+├── README.md
+│
+├── api/                        # HTTP / API route handlers
+│   ├── __init__.py
+│   ├── inventory.py
+│   ├── purchase_orders.py
+│   ├── suppliers.py
+│   ├── forecasting.py
+│   └── procurement.py
+│
+├── database/                   # Database connectivity, queries, & migrations ONLY
+│   ├── __init__.py
+│   ├── connection.py
+│   ├── queries.py
+│   └── migrations/
+│
+├── models/                     # Domain & schema re-exports
+│   ├── __init__.py
+│   ├── inventory.py
+│   ├── purchase_order.py
+│   ├── supplier.py
+│   └── forecast.py
+│
+├── schemas/                    # Pydantic request / response schemas
+│   ├── __init__.py
+│   ├── inventory.py
+│   ├── purchase_order.py
+│   ├── forecast.py
+│   └── procurement.py
+│
+├── services/                   # Business logic layer
+│   ├── __init__.py
+│   ├── inventory_service.py
+│   ├── purchase_order_service.py
+│   ├── forecasting_service.py
+│   └── procurement_service.py
+│
+├── ml/                         # Machine Learning & PuLP Optimization
+│   ├── __init__.py
+│   ├── forecasting/            # XGBoost/LightGBM Demand Forecasting Pipeline
+│   │   ├── __init__.py
+│   │   ├── features.py         # Lag & rolling feature engineering
+│   │   ├── train.py            # Time-based split model training
+│   │   ├── predict.py          # Model loading & inference
+│   │   ├── evaluation.py       # MAE, RMSE, MAPE metrics
+│   │   └── models/             # Trained model storage (.joblib)
+│   │
+│   └── procurement/            # PuLP Mixed-Integer Linear Programming
+│       ├── __init__.py
+│       ├── optimize.py         # PuLP MILP solver engine
+│       ├── constraints.py      # MOQ, max stock, safety stock constraints
+│       ├── objective.py        # Cost minimization objective function
+│       └── models/
+│
+├── utils/                      # Utilities & authentication
+│   ├── __init__.py
+│   ├── logging.py
+│   └── validation.py
+│
+└── tests/                      # Automated validation suite
+    ├── __init__.py
+    ├── test_inventory.py
+    ├── test_forecasting.py
+    └── test_procurement.py
+```
+
+---
+
+## 🤖 ML Demand Forecasting Pipeline
+
+The system includes a time-series demand forecasting pipeline using **XGBoost**:
+
+1. **Historical Data Source**: Extracted directly from `demand_history` table (`part_id`, `date`, `quantity_consumed`, `depot`).
+2. **Feature Engineering** (`ml/forecasting/features.py`):
+   - Lag features: `lag_1`, `lag_7`, `lag_14`, `lag_28`
+   - Rolling statistics: `rolling_mean_7`, `rolling_mean_14`, `rolling_mean_28`, `rolling_std_28`
+   - Calendar features: `day_of_week`, `day_of_month`, `month`, `quarter`, `year`
+3. **Training & Evaluation** (`ml/forecasting/train.py`, `ml/forecasting/evaluation.py`):
+   - Time-based train/validation split (chronological order, no random shuffle).
+   - Evaluation metrics computed: `MAE`, `RMSE`, `MAPE`.
+   - Model saved to `ml/forecasting/models/xgboost_demand_model.joblib`.
+4. **Inference API** (`ml/forecasting/predict.py`, `GET /forecast/{part_id}`):
+   - Loads trained model artifact (does NOT retrain on every request).
+   - Generates 30-day forecast horizon structured as JSON:
+     ```json
+     {
+       "part_id": "1",
+       "model": "XGBoost",
+       "forecast_horizon": 30,
+       "forecast": [
+         {"date": "2026-10-06", "forecast_quantity": 4.5}
+       ],
+       "total_forecast": 135.0,
+       "mape": 12.5
+     }
+     ```
+
+---
+
+## 🧮 PuLP Procurement Optimization Engine
+
+Workflow:
+`Historical Demand` ➔ `ML Demand Forecast` ➔ `Inventory Requirements` ➔ `PuLP Optimization` ➔ `Recommended Procurement Quantity` ➔ `Purchase Order`
+
+Supported Constraints (`ml/procurement/constraints.py`):
+- Current stock vs Reorder Point & Safety Stock
+- Minimum Order Quantity (MOQ)
+- Maximum Order Quantity / Maximum Stock Level
+- Vendor Lead Time & Pricing
+- Total Budget Cap constraint (optional)
+
+Endpoints:
+- `GET /api/v1/db/procurement/optimization-input`
+- `POST /api/v1/db/procurement/optimize`
+
+---
+
+## 🚀 Running the Application
+
+### 1. Installation
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Environment Setup
+Configure `.env`:
+```env
+DATABASE_URL=postgresql://username:password@hostname:5432/ksrtc_db
+API_KEY=
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+PORT=8000
+```
+
+### 3. Run FastAPI Backend Server
+```bash
+uvicorn main:app --reload --port 8000
+```
+
+### 4. Run Test Suite
+```bash
+python test_app.py
+# or
+python -m pytest tests/
 ```
 
 ---
 
 ## 📦 Database Schema
 
-The database consists of 11 relational tables managed through `psycopg 3` with automatic idempotent schema migrations:
-
 | Table | Description |
 |---|---|
 | `parts` | Spare parts catalog with SKU, name, category, unit cost, and criticality. |
 | `inventory` | Real-time stock levels, reorder points, safety stock, and maximum stock limits. |
-| `suppliers` | Registered suppliers and vendors with lead times and reliability ratings. |
-| `supplier_parts` | Vendor-specific catalog with negotiated unit costs, lead times, and MOQs. |
+| `vendors` | Registered vendors/suppliers with lead times and reliability ratings. |
 | `purchase_orders` | Purchase orders with lifecycle tracking (`Draft` ➔ `Ordered` ➔ `Received` ➔ `Cancelled`). |
 | `purchase_order_items` | Individual line items on purchase orders. |
-| `inventory_transactions` | Complete immutable audit ledger for every stock change (`PO_RECEIPT`, `CONSUMPTION`, `ADJUSTMENT`). |
-| `demand_history` | Historical daily consumption records for time-series modeling and XGBoost. |
-| `forecasts` | ML model forecasts by part and forecast date. |
-| `procurement_recommendations` | Output from PuLP linear programming model with suggested order quantities and priorities. |
+| `inventory_transactions` | Immutable audit ledger for every stock change (`PO_RECEIPT`, `CONSUMPTION`, `ADJUSTMENT`). |
+| `demand_history` | Historical daily consumption records for time-series modeling. |
+| `forecasts` | Forecast records by part and date. |
+| `procurement_recommendations` | Output from PuLP model with suggested order quantities and priorities. |
 | `model_runs` | Audit log of ML and PuLP optimization model executions with metrics (MAE, RMSE, MAPE). |
-
----
-
-## 🚀 Getting Started
-
-### 1. Prerequisites
-- Python 3.10+ (tested on Python 3.10 – 3.14)
-- PostgreSQL database instance (local or hosted on Render, Supabase, Neon, AWS RDS, etc.)
-
-### 2. Installation
-Clone the repository and install dependencies:
-```bash
-git clone https://github.com/rishichandran1417/Database.git
-cd Database
-python -m venv venv
-
-# On Windows:
-.\venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-### 3. Environment Configuration
-Create a `.env` file from the provided template:
-```bash
-cp .env.example .env
-```
-
-Configure your variables in `.env`:
-```env
-# PostgreSQL connection string (Never commit real credentials)
-DATABASE_URL=postgresql://postgres:password@localhost:5432/ksrtc_db
-
-# Optional write-endpoint security key
-API_KEY=your_secure_api_key_here
-
-# Allowed origins for CORS (comma-separated)
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,https://my-frontend.vercel.app
-```
-
----
-
-## 🏃 Running the Application
-
-### 1. Start the FastAPI Dev Server
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-- Interactive Swagger UI: `http://localhost:8000/docs`
-- ReDoc Documentation: `http://localhost:8000/redoc`
-- Health check: `http://localhost:8000/api/v1/db/health`
-
-### 2. Populate Database with Seed Data
-Run the idempotent seed script to populate realistic KSRTC parts (Ashok Leyland spares), suppliers (TVS, Brakes India, Lucas-TVS, MRF), 90 days of daily consumption history, and sample POs:
-```bash
-python seed.py
-```
-*Note: `seed.py` is safe to run multiple times without creating duplicates.*
-
-Alternatively, trigger seeding via the API:
-```bash
-curl -X POST http://localhost:8000/api/v1/db/seed
-```
-
----
-
-## 🌐 Render Deployment
-
-1. **Connect Repository**: Link `https://github.com/rishichandran1417/Database` to Render.
-2. **Environment**: Select **Python 3**.
-3. **Build Command**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. **Start Command**:
-   ```bash
-   uvicorn main:app --host 0.0.0.0 --port $PORT
-   ```
-5. **Environment Variables**:
-   - `DATABASE_URL`: Your Render PostgreSQL database connection string (internal or external).
-   - `ALLOWED_ORIGINS`: Your React frontend domain (e.g. `https://ksrtc-procurement.vercel.app`).
-   - `API_KEY`: (Optional) Secret key to secure write operations.
-
----
-
-## 📖 API Endpoints Reference
-
-All endpoints are prefixed with `/api/v1/db`:
-
-### Health & Analytics
-- `GET /api/v1/db/health` — PostgreSQL connection health check.
-- `GET /api/v1/db/analytics/context` — Depot KPIs and summary context for Gemini AI Assistant.
-- `GET /api/v1/db/procurement/optimization-input` — Unified input feed for PuLP optimization model.
-- `POST /api/v1/db/seed` — Trigger idempotent database seed.
-
-### Parts (`/api/v1/db/parts`)
-- `GET /parts` — List all spare parts (supports `?category=`, `?criticality=`, `?search=`).
-- `GET /parts/{id}` — Get single part details.
-- `POST /parts` — Create a new spare part. *(Requires X-API-Key if enabled)*
-- `PUT /parts/{id}` — Update part details. *(Requires X-API-Key if enabled)*
-- `DELETE /parts/{id}` — Delete part. *(Requires X-API-Key if enabled)*
-
-### Inventory (`/api/v1/db/inventory`)
-- `GET /inventory` — List all stock levels with status (`Healthy`, `Warning`, `Critical`) and stockout risk.
-- `GET /inventory/{part_id}` — Get stock levels for a specific part.
-- `PUT /inventory/{part_id}` — Update stock quantity, reorder point, or safety stock.
-
-### Suppliers (`/api/v1/db/suppliers`)
-- `GET /suppliers` — List all suppliers (supports `?status=`, `?category=`).
-- `GET /suppliers/{id}` — Get single supplier.
-- `POST /suppliers` — Register a new supplier.
-- `PUT /suppliers/{id}` — Update supplier information.
-- `DELETE /suppliers/{id}` — Delete supplier.
-
-### Supplier Parts (`/api/v1/db/supplier-parts`)
-- `GET /supplier-parts` — List supplier-part price quotes, lead times, and MOQs.
-- `POST /supplier-parts` — Link part to supplier with unit cost, lead time, and MOQ.
-
-### Purchase Orders (`/api/v1/db/purchase-orders`)
-- `GET /purchase-orders` — List purchase orders (supports `?status=Ordered`, etc.).
-- `GET /purchase-orders/{id}` — Get purchase order with line items.
-- `POST /purchase-orders` — Create new purchase order with multi-item lines.
-- `PUT /purchase-orders/{id}` — Update purchase order metadata.
-- `PATCH /purchase-orders/{id}/status` — **Key business logic**: Updating status to `"received"` atomically updates inventory quantity, creates audit ledger transactions, and marks order received.
-
-### Demand History (`/api/v1/db/demand-history`)
-- `GET /demand-history` — Retrieve historical consumption data (supports `?part_id=`, `?start_date=`, `?end_date=`).
-- `POST /demand-history` — Record single daily consumption entry.
-- `POST /demand-history/batch` — Bulk import consumption entries for model training.
-
-### Forecasts (`/api/v1/db/forecasts`)
-- `GET /forecasts` — Get ML forecasts (supports `?part_id=`, `?model_name=`).
-- `GET /forecasts/{part_id}` — Get forecasts for a specific part.
-- `POST /forecasts` — Store ML model forecasts (supports batch upload).
-
-### Procurement Recommendations (`/api/v1/db/procurement-recommendations`)
-- `GET /procurement-recommendations` — List optimization recommendations by priority.
-- `POST /procurement-recommendations` — Store PuLP procurement outputs (supports batch upload).
-
-### Model Runs (`/api/v1/db/model-runs`)
-- `GET /model-runs` — View execution history of forecasting & optimization models.
-- `POST /model-runs` — Record a model execution run with metrics JSON.
-
----
-
-## 🔒 Security & CORS
-
-- **CORS**: Configured dynamically via `ALLOWED_ORIGINS`. Localhost is permitted during local development.
-- **API Protection**: Read endpoints (`GET`) remain publicly accessible for client displays and model querying. Write operations (`POST`, `PUT`, `PATCH`, `DELETE`) are protected by the `X-API-Key` header when `API_KEY` is configured in the environment.
-- **Database Safety**: Database credentials are strictly read from `DATABASE_URL` and never exposed in API responses or frontend client code.

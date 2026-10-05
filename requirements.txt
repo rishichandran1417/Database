@@ -4,3 +4,9 @@ psycopg[binary]
 psycopg-pool
 pydantic
 python-dotenv
+xgboost
+lightgbm
+scikit-learn
+pandas
+numpy
+pulp
