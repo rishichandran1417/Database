@@ -72,9 +72,12 @@ def test_forecast_probe_endpoint():
     assert data_probe["status"] == "ok"
     assert data_probe["service"] == "ML Forecasting Service"
     assert data_probe["model"] == "XGBoost"
+    assert data_probe["model_loaded"] is True
 
     res_api_probe = client.get("/api/v1/db/forecast")
     assert res_api_probe.status_code == 200
     assert res_api_probe.json()["status"] == "ok"
+    assert res_api_probe.json()["model_loaded"] is True
+
 
 

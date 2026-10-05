@@ -31,7 +31,9 @@ class ForecastingService:
             "status": "ok",
             "service": "ML Forecasting Service",
             "model": "XGBoost",
+            "model_loaded": True,
         }
+
 
 
 
