@@ -18,10 +18,17 @@ from schemas.forecast import (
     ForecastResponse,
 )
 
-
 router = APIRouter(tags=["Demand Forecasting"])
 
 
+# 1. Dedicated Parameter-Free Probe Route (Must be registered BEFORE /forecast/{part_id})
+@router.get("/forecast", response_model=None)
+def probe_ml_forecasting_service():
+    """Lightweight parameter-free ML Forecasting Service connection and health probe."""
+    return ForecastingService.get_ml_service_health()
+
+
+# 2. Demand History Endpoints
 @router.get("/demand-history", response_model=List[DemandHistoryResponse])
 def get_demand_history(
     part_id: Optional[int] = None,
@@ -42,14 +49,8 @@ def record_demand_batch(payload: DemandHistoryBatchCreate):
     return ForecastingService.record_demand_batch(payload)
 
 
-@router.get("/forecast", response_model=None, tags=["Demand Forecasting"])
-@router.get("/forecasts/probe", response_model=None, tags=["Demand Forecasting"], include_in_schema=False)
-def probe_ml_forecasting_service():
-    """Lightweight parameter-free ML Forecasting Service connection and health probe."""
-    return ForecastingService.get_ml_service_health()
-
-
-@router.post("/forecast/predict", response_model=ForecastEndpointResponse, tags=["Demand Forecasting"])
+# 3. Forecast Predictions & Management
+@router.post("/forecast/predict", response_model=ForecastEndpointResponse)
 def predict_forecast_by_body(payload: ForecastPredictRequest):
     """Generates demand forecast using JSON request payload."""
     return ForecastingService.generate_part_forecast(payload.part_id, payload.forecast_horizon or 30)
@@ -64,13 +65,10 @@ def get_forecasts(
     return ForecastingService.get_forecasts(part_id, model_name, limit)
 
 
-@router.get("/forecasts/{part_id}", response_model=ForecastEndpointResponse)
 @router.get("/forecast/{part_id}", response_model=ForecastEndpointResponse)
-@router.post("/forecast/{part_id}", response_model=ForecastEndpointResponse)
 def get_forecast_for_part(part_id: int, forecast_horizon: int = Query(30, ge=1, le=365)):
     """Generates 30-day XGBoost demand forecast for specified part_id."""
     return ForecastingService.generate_part_forecast(part_id, forecast_horizon)
-
 
 
 @router.post("/forecasts", status_code=201, dependencies=[Depends(verify_api_key)])
