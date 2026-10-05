@@ -46,23 +46,18 @@ def load_model_artifact() -> Dict[str, Any]:
 def predict_demand_for_part(part_id: int, forecast_horizon: int = 30) -> Dict[str, Any]:
     """
     Generates forecast_horizon day demand predictions for a given part_id using the loaded ML model.
-    Returns structured dict matching required format:
-    {
-      "part_id": str(part_id),
-      "model": "XGBoost",
-      "forecast_horizon": 30,
-      "forecast": [...],
-      "total_forecast": float,
-      "mape": float
-    }
+    If historical data is insufficient (< 7 records), returns explicit status instead of a misleading fallback.
     """
     artifact = load_model_artifact()
     model = artifact.get("model")
     model_name = artifact.get("model_name", "XGBoost")
     metrics = artifact.get("metrics", {})
-    mape = float(metrics.get("mape", 0.0))
+    mape = float(metrics.get("mape", 0.0)) if "mape" in metrics else None
+    wape = float(metrics.get("wape", 0.0)) if "wape" in metrics else None
+    smape = float(metrics.get("smape", 0.0)) if "smape" in metrics else None
     mae = float(metrics.get("mae", 0.0)) if "mae" in metrics else None
     rmse = float(metrics.get("rmse", 0.0)) if "rmse" in metrics else None
+    bias = float(metrics.get("bias", 0.0)) if "bias" in metrics else None
 
     # Fetch recent historical demand for this part
     try:
@@ -76,80 +71,85 @@ def predict_demand_for_part(part_id: int, forecast_horizon: int = 30) -> Dict[st
             ).fetchall()
         history_df = pd.DataFrame([dict(r) for r in rows]) if rows else pd.DataFrame()
     except Exception as e:
-        logger.debug("Could not fetch demand history for part %s from DB (%s); using fallback simulation.", part_id, e)
+        logger.debug("Could not fetch demand history for part %s from DB (%s).", part_id, e)
         history_df = pd.DataFrame()
 
+    if history_df.empty or len(history_df) < 7 or model is None:
+        return {
+            "status": "insufficient_history",
+            "part_id": str(part_id),
+            "message": f"Insufficient historical demand data for ML forecasting (minimum 7 records required, found {len(history_df)}).",
+            "historical_records": len(history_df),
+            "forecast_horizon": forecast_horizon,
+            "model": model_name,
+            "forecast": [],
+            "total_forecast": 0.0,
+            "mape": None,
+            "wape": None,
+            "smape": None,
+            "mae": None,
+            "rmse": None,
+            "bias": None,
+        }
 
     today = date.today()
     forecast_list: List[Dict[str, Any]] = []
     total_forecast = 0.0
 
-    if not history_df.empty and len(history_df) >= 7 and model is not None:
-        # Recursive auto-regressive multi-step forecasting
-        df_sim = history_df.copy()
-        df_sim["date"] = pd.to_datetime(df_sim["date"])
+    # Recursive auto-regressive multi-step forecasting
+    df_sim = history_df.copy()
+    df_sim["date"] = pd.to_datetime(df_sim["date"])
 
-        for step in range(1, forecast_horizon + 1):
-            next_date = today + timedelta(days=step)
-            # Add dummy placeholder for next_date
-            temp_row = pd.DataFrame([{
+    for step in range(1, forecast_horizon + 1):
+        next_date = today + timedelta(days=step)
+        # Add dummy placeholder for next_date
+        temp_row = pd.DataFrame([{
+            "part_id": part_id,
+            "date": pd.to_datetime(next_date),
+            "quantity_consumed": 0,
+            "depot": "KSRTC Central Stores",
+        }])
+        df_curr = pd.concat([df_sim, temp_row], ignore_index=True)
+        df_feat = build_time_series_features(df_curr)
+
+        latest_row = df_feat.iloc[[-1]]
+        X_input = latest_row[FEATURE_COLUMNS]
+
+        pred_qty = float(np.maximum(0, model.predict(X_input)[0]))
+        pred_qty_rounded = round(pred_qty, 2)
+
+        forecast_list.append({
+            "date": next_date.strftime("%Y-%m-%d"),
+            "forecast_quantity": pred_qty_rounded,
+        })
+        total_forecast += pred_qty_rounded
+
+        # Update simulated history with predicted value
+        df_sim = pd.concat([
+            df_sim,
+            pd.DataFrame([{
                 "part_id": part_id,
                 "date": pd.to_datetime(next_date),
-                "quantity_consumed": 0,
+                "quantity_consumed": pred_qty_rounded,
                 "depot": "KSRTC Central Stores",
-            }])
-            df_curr = pd.concat([df_sim, temp_row], ignore_index=True)
-            df_feat = build_time_series_features(df_curr)
-
-            latest_row = df_feat.iloc[[-1]]
-            X_input = latest_row[FEATURE_COLUMNS]
-
-            pred_qty = float(np.maximum(0, model.predict(X_input)[0]))
-            pred_qty_rounded = round(pred_qty, 2)
-
-            forecast_list.append({
-                "date": next_date.strftime("%Y-%m-%d"),
-                "forecast_quantity": pred_qty_rounded,
-            })
-            total_forecast += pred_qty_rounded
-
-            # Update simulated history with predicted value
-            df_sim = pd.concat([
-                df_sim,
-                pd.DataFrame([{
-                    "part_id": part_id,
-                    "date": pd.to_datetime(next_date),
-                    "quantity_consumed": pred_qty_rounded,
-                    "depot": "KSRTC Central Stores",
-                }]),
-            ], ignore_index=True)
-    else:
-        # Fallback using historical average or standard reorder baseline if history is sparse
-        avg_demand = float(history_df["quantity_consumed"].mean()) if (not history_df.empty and "quantity_consumed" in history_df) else 2.5
-        avg_demand = max(1.0, round(avg_demand, 2))
-
-        for step in range(1, forecast_horizon + 1):
-            next_date = today + timedelta(days=step)
-            # Add realistic minor day-of-week variation
-            dow = next_date.weekday()
-            factor = 1.2 if dow in (0, 4) else (0.8 if dow == 6 else 1.0)
-            step_qty = round(avg_demand * factor, 2)
-
-            forecast_list.append({
-                "date": next_date.strftime("%Y-%m-%d"),
-                "forecast_quantity": step_qty,
-            })
-            total_forecast += step_qty
+            }]),
+        ], ignore_index=True)
 
     total_forecast = float(round(total_forecast, 2))
 
     return {
+        "status": "success",
         "part_id": str(part_id),
+        "historical_records": len(history_df),
         "model": model_name,
         "forecast_horizon": forecast_horizon,
         "forecast": forecast_list,
         "total_forecast": total_forecast,
         "mape": mape,
+        "wape": wape,
+        "smape": smape,
         "mae": mae,
         "rmse": rmse,
+        "bias": bias,
     }
+

@@ -9,6 +9,7 @@ import numpy as np
 
 
 FEATURE_COLUMNS = [
+    "part_id",
     "lag_1",
     "lag_7",
     "lag_14",
@@ -23,6 +24,7 @@ FEATURE_COLUMNS = [
     "quarter",
     "year",
 ]
+
 
 
 def build_time_series_features(df: pd.DataFrame, target_col: str = "quantity_consumed") -> pd.DataFrame:

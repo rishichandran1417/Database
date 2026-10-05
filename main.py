@@ -248,8 +248,9 @@ def root_forecast_predict(payload: dict):
 
 @app.get("/forecast/{part_id}", include_in_schema=False)
 @app.post("/forecast/{part_id}", include_in_schema=False)
-def root_forecast_part(part_id: int):
-    return ForecastingService.generate_part_forecast(part_id)
+def root_forecast_part(part_id: int, forecast_horizon: int = 30):
+    return ForecastingService.generate_part_forecast(part_id, forecast_horizon=forecast_horizon)
+
 
 
 
